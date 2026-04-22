@@ -3,21 +3,21 @@ import threading
 import os
 
 # Configuration
-HOST = '0.0.0.0'
+HOST = '0.0.0.0'  # Listen on all interfaces for remote access
 PORT = 8080
-BUFFER_SIZE = 4090
-EOF_MARKER = b"<--EOF--"
+BUFFER_SIZE = 4096
+EOF_MARKER = b"<--EOF-->"
 
 def handle_client(conn, addr):
     print(f"[NEW CONNECTION] {addr} connected.")
     try:
         while True:
-            # Recieve command from client
+            # Receive command from client
             data = conn.recv(BUFFER_SIZE).decode('utf-8')
             if not data:
                 break
-
-            parts = data.split(maxsplit = 1)
+            
+            parts = data.split(maxsplit=1)
             cmd = parts[0].upper()
             arg = parts[1] if len(parts) > 1 else None
 
@@ -34,7 +34,18 @@ def handle_client(conn, addr):
                     conn.sendall(f"Error: {str(e)}".encode('utf-8'))
 
             elif cmd == "WRITE" and arg:
-                if os.paht.exists(arg):
+                conn.sendall(b"READY") # Signal client to start sending
+                with open(arg, 'wb') as f:
+                    while True:
+                        chunk = conn.recv(BUFFER_SIZE)
+                        if chunk.endswith(EOF_MARKER):
+                            f.write(chunk[:-len(EOF_MARKER)])
+                            break
+                        f.write(chunk)
+                print(f"[FILE RECEIVED] {arg} from {addr}")
+
+            elif cmd == "READ" and arg:
+                if os.path.exists(arg):
                     conn.sendall(b"OK")
                     with open(arg, 'rb') as f:
                         while (chunk := f.read(BUFFER_SIZE)):
@@ -42,11 +53,11 @@ def handle_client(conn, addr):
                     conn.sendall(EOF_MARKER)
                 else:
                     conn.sendall(b"ERROR")
-            
+
             elif cmd == "EXIT":
                 break
     except Exception as e:
-        print(f"[ERROR] {addr}")
+        print(f"[ERROR] {addr}: {e}")
     finally:
         conn.close()
         print(f"[DISCONNECTED] {addr}")
@@ -55,14 +66,13 @@ def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
     server.listen()
-    print(f"[LISTENING] server is listening on port {PORT}")
+    print(f"[LISTENING] Server is listening on port {PORT}")
     
     while True:
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        print(f"[ACTIVE CONNECTIONS] {threading.active_count() -1}")
+        print(f"[ACTIVE CONNECTIONS] {threading.active_count() - 1}")
 
 if __name__ == "__main__":
     start_server()
-
